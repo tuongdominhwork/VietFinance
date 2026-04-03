@@ -16,9 +16,13 @@ export default function NavBar() {
   return (
     <div className={`navbar-outer${scrolled ? ' navbar-outer--scrolled' : ''}`}>
       <nav className="navbar">
-        <div className="navbar-logo">
+        <button
+          className="navbar-logo"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+        >
           <img src={scrolled ? miniLogo : logo} alt="VietFinance Bank" />
-        </div>
+        </button>
 
         <div className="navbar-links">
           <a href="#">For Personal</a>

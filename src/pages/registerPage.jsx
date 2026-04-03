@@ -1,14 +1,16 @@
+import { useNavigate } from 'react-router-dom'
 import miniLogo from '../assets/miniLogo.png'
 import authImg from '../assets/auth.png'
 
 export default function RegisterPage() {
+  const navigate = useNavigate()
   return (
     <div className="auth-page">
       <div className="auth-card">
 
         {/* ── Left: form panel ── */}
         <div className="auth-form-panel">
-          <img src={miniLogo} alt="VietFinance Bank" className="auth-logo" />
+          <img src={miniLogo} alt="VietFinance Bank" className="auth-logo" onClick={() => navigate('/')} style={{ cursor: 'pointer' }} />
 
           <h1 className="auth-heading">Register</h1>
           <p className="auth-sub">Create your account to get started.</p>
