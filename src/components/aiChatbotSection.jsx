@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import aiChatBot from '../assets/aiChatbot/AIChatBot.png'
 
 export default function AIChatbotSection() {
   const sectionRef = useRef(null)
   const [visible, setVisible] = useState(false)
   const navigate = useNavigate()
+  const { user } = useAuth()
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -34,7 +36,7 @@ export default function AIChatbotSection() {
             and delivers accurate, personalized answers in seconds. No waiting.
             No hold music. Just intelligent support whenever you need it most.
           </p>
-          <button className="btn-try-now" onClick={() => navigate('/chat')}>
+          <button className="btn-try-now" onClick={() => navigate(user ? '/chat' : '/login')}>
             <span>Try now</span>
             <div className="arrow-circle arrow-circle--dark">
               <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">

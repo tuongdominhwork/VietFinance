@@ -704,6 +704,17 @@ body {
   background: linear-gradient(to right, #07274d, #164e8a);
 }
 
+.auth-btn-primary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.auth-error {
+  color: #dc2626;
+  font-size: 0.85rem;
+  margin: -4px 0 4px;
+}
+
 .auth-switch {
   margin-top: auto;
   padding-top: 24px;
@@ -1376,6 +1387,53 @@ body {
 .chatbot-new-chat-btn:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #ffffff;
+}
+
+/* ── Sidebar Bottom ── */
+.chatbot-sidebar-bottom {
+  margin-top: auto;
+  padding: 12px 12px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.chatbot-sidebar-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 7px;
+  border-radius: 10px;
+  cursor: default;
+  overflow: hidden;
+}
+
+.chatbot-user-avatar {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 50%;
+  background: #DBB35F;
+  color: #0B3C71;
+  font-family: 'League Spartan', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.chatbot-user-name {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: white;
 }
 
 /* ── Main Area ── */

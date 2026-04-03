@@ -7,6 +7,7 @@ const PLANS = [
     name: 'VietStudent Plan',
     unitPrice: 'Price $2 unit per month',
     price: '$2',
+    yearlyPrice: '$20',
     features: [
       'SMS Notification',
       'Up to 14% saving rate',
@@ -27,6 +28,7 @@ const PLANS = [
     name: 'VietVIP Plan',
     unitPrice: 'Price $12 unit per month',
     price: '$12',
+    yearlyPrice: '$120',
     features: [
       'Up to date news of Stock options',
       'Up to 16% saving rate',
@@ -48,6 +50,7 @@ const PLANS = [
     name: 'VietPremium Plan',
     unitPrice: 'Price $20 unit per month',
     price: '$20',
+    yearlyPrice: '$200',
     features: [
       'Up to date news of Stock options',
       'Up to 16% saving rate',
@@ -145,8 +148,12 @@ export default function PricingSection() {
               <p className="pricing-card-unit">{plan.unitPrice}</p>
 
               <div className="pricing-card-price">
-                <span className="pricing-card-amount">{plan.price}</span>
-                <span className="pricing-card-period"> / month</span>
+                <span className="pricing-card-amount">
+                  {billing === 'yearly' ? plan.yearlyPrice : plan.price}
+                </span>
+                <span className="pricing-card-period">
+                  {billing === 'yearly' ? ' / year' : ' / month'}
+                </span>
               </div>
 
               <ul className="pricing-card-features">
