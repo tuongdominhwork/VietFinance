@@ -1,17 +1,85 @@
-# React + Vite
-
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
 # VietFinance
+
+VietFinance is a modern React + Vite frontend for a digital banking experience.  
+It includes a landing page, authentication screens, and an AI chatbot interface.
+
+## Tech Stack
+
+- React 19
+- React Router DOM 7
+- Vite 8
+- ESLint 9
+
+## Features
+
+- Marketing landing page with multiple sections
+- Animated hero experience
+- Login and register pages
+- AI chatbot UI with quick suggestion prompts
+- Route-based navigation using React Router
+
+## Project Structure
+
+```text
+vietfinance/
+├─ public/
+├─ src/
+│  ├─ assets/
+│  ├─ components/
+│  ├─ pages/
+│  │  ├─ landingPage.jsx
+│  │  ├─ loginPage.jsx
+│  │  ├─ registerPage.jsx
+│  │  └─ AIChatBot.jsx
+│  ├─ App.jsx
+│  ├─ main.jsx
+│  └─ index.css
+├─ index.html
+├─ package.json
+└─ vite.config.js
+```
+
+## Routes
+
+- `/` → Landing page
+- `/login` → Login page
+- `/register` → Register page
+- `/chat` → AI chatbot page
+
+## Getting Started
+
+### 1) Install dependencies
+
+```bash
+npm install
+```
+
+### 2) Run development server
+
+```bash
+npm run dev
+```
+
+### 3) Build for production
+
+```bash
+npm run build
+```
+
+### 4) Preview production build
+
+```bash
+npm run preview
+```
+
+## Available Scripts
+
+- `npm run dev` – start Vite dev server
+- `npm run build` – build production bundle
+- `npm run preview` – preview built app locally
+- `npm run lint` – run ESLint
+
+## Notes
+
+- This repository currently focuses on frontend UI and routing.
+- Authentication and chatbot backend integration can be added in future iterations.
