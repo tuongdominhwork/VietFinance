@@ -2,16 +2,40 @@ const prisma = require('../config/db');
 const BASE_URL = process.env.BASE_URL || 'http://localhost:5001';
 const { searchChunks } = require('../services/vectorSearch');
 
-async function buildTree(parentId) {
+const ROLE_RANK = Object.freeze({
+  customer: 1,
+  employee: 2,
+  manager: 3,
+  admin: 4,
+});
+
+function canAccessDocument(userRole, docPermission) {
+  const ur = ROLE_RANK[String(userRole || '').toLowerCase()] ?? 0;
+  const dr = ROLE_RANK[String(docPermission || '').toLowerCase()] ?? 0;
+  if (dr === 0) return false;
+  return ur >= dr;
+}
+
+function allowedPermissionsForRole(role) {
+  const r = String(role || '').toLowerCase();
+  if (r === 'admin') return ['admin', 'manager', 'employee', 'customer'];
+  if (r === 'manager') return ['manager', 'employee', 'customer'];
+  if (r === 'employee') return ['employee', 'customer'];
+  return ['customer'];
+}
+
+async function buildTree(parentId, allowedPermissions) {
   const folders = await prisma.folder.findMany({
-    where: { parentId: parentId ?? null },
+    where: { parentId: parentId ?? null, permission: { in: allowedPermissions } },
     orderBy: { name: 'asc' },
   });
 
   return Promise.all(
     folders.map(async (folder, index) => {
-      const children = await buildTree(folder.id);
-      const docCount = await prisma.document.count({ where: { folderId: folder.id } });
+      const children = await buildTree(folder.id, allowedPermissions);
+      const docCount = await prisma.document.count({
+        where: { folderId: folder.id, permission: { in: allowedPermissions } },
+      });
       const totalCount = docCount + children.reduce((s, c) => s + c.count, 0);
       return {
         id: folder.id,
@@ -26,7 +50,8 @@ async function buildTree(parentId) {
 
 exports.getFolderTree = async (req, res) => {
   try {
-    const tree = await buildTree(null);
+    const allowed = allowedPermissionsForRole(req.user?.role);
+    const tree = await buildTree(null, allowed);
     res.json({ folders: tree });
   } catch (err) {
     console.error(err);
@@ -39,27 +64,35 @@ exports.getFolderContents = async (req, res) => {
   if (isNaN(folderId)) return res.status(400).json({ message: 'Invalid folder ID' });
 
   try {
+    const allowed = allowedPermissionsForRole(req.user?.role);
     const folder = await prisma.folder.findUnique({ where: { id: folderId } });
     if (!folder) return res.status(404).json({ message: 'Folder not found' });
+    if (!allowed.includes(String(folder.permission || '').toLowerCase())) {
+      return res.status(403).json({ message: 'Insufficient permissions' });
+    }
 
     const subfolders = await prisma.folder.findMany({
-      where: { parentId: folderId },
-      include: { _count: { select: { documents: true } } },
+      where: { parentId: folderId, permission: { in: allowed } },
       orderBy: { name: 'asc' },
     });
 
     const documents = await prisma.document.findMany({
-      where: { folderId },
+      where: { folderId, permission: { in: allowed } },
       include: { addedBy: { select: { email: true } } },
       orderBy: { name: 'asc' },
     });
 
     res.json({
       folder: { id: folder.id, name: folder.name },
-      subfolders: subfolders.map(f => ({
-        id: f.id,
-        name: f.name,
-        count: `${f._count.documents} File${f._count.documents !== 1 ? 's' : ''}`,
+      subfolders: await Promise.all(subfolders.map(async (f) => {
+        const count = await prisma.document.count({
+          where: { folderId: f.id, permission: { in: allowed } },
+        });
+        return {
+          id: f.id,
+          name: f.name,
+          count: `${count} File${count !== 1 ? 's' : ''}`,
+        };
       })),
       documents: documents.map(d => ({
         id: d.id,
@@ -120,13 +153,14 @@ exports.searchDocuments = async (req, res) => {
       entry.highlights = entry.highlights.slice(0, 2);
     }
 
-    const rankedBySemantic = Array.from(byDoc.values()).sort((a, b) => b.score - a.score).slice(0, topKDocs);
-    const docIds = rankedBySemantic.map(r => r.documentId);
+    const rankedBySemanticAll = Array.from(byDoc.values()).sort((a, b) => b.score - a.score);
+    const docIds = rankedBySemanticAll.map(r => r.documentId);
 
-    const documents = docIds.length === 0 ? [] : await prisma.document.findMany({
+    const documentsRaw = docIds.length === 0 ? [] : await prisma.document.findMany({
       where: { id: { in: docIds } },
       include: { addedBy: { select: { email: true } } },
     });
+    const documents = documentsRaw.filter(d => canAccessDocument(req.user?.role, d.permission));
 
     const qTokens = q
       .toLowerCase()
@@ -147,7 +181,7 @@ exports.searchDocuments = async (req, res) => {
     }
 
     const docById = new Map(documents.map(d => [d.id, d]));
-    const enriched = rankedBySemantic
+    const enriched = rankedBySemanticAll
       .map(r => {
         const d = docById.get(r.documentId);
         if (!d) return null;
