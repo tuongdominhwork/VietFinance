@@ -8,13 +8,76 @@ datasource db {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  name      String
-  email     String   @unique
-  password  String
-  role      String   // admin | manager | employee | customer
-  tier      String?  // employee: junior|senior  /  customer: no_plan|student|vip|premium
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           Int           @id @default(autoincrement())
+  name         String
+  email        String        @unique
+  password     String
+  role         String        // admin | manager | employee | customer
+  tier         String?       // employee: junior|senior  /  customer: no_plan|student|vip|premium
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  folders      Folder[]      @relation("FolderCreator")
+  documents    Document[]    @relation("DocumentCreator")
+  chatSessions ChatSession[]
+}
+
+model Folder {
+  id          Int        @id @default(autoincrement())
+  name        String
+  parentId    Int?
+  parent      Folder?    @relation("FolderChildren", fields: [parentId], references: [id])
+  children    Folder[]   @relation("FolderChildren")
+  createdBy   User       @relation("FolderCreator", fields: [createdById], references: [id])
+  createdById Int
+  permission  String     @default("employee") // admin|manager|employee|customer
+  documents   Document[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Document {
+  id          Int      @id @default(autoincrement())
+  name        String
+  folderId    Int?
+  folder      Folder?  @relation(fields: [folderId], references: [id])
+  addedBy     User     @relation("DocumentCreator", fields: [addedById], references: [id])
+  addedById   Int
+  size        String   @default("0 KB")
+  kind        String   // PDF | Word | Excel | Text
+  permission  String   @default("employee") // admin|manager|employee|customer
+  content     String?
+  filePath    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  chunks      DocumentChunk[]
+}
+
+model ChatSession {
+  id        Int           @id @default(autoincrement())
+  title     String
+  user      User          @relation(fields: [userId], references: [id])
+  userId    Int
+  messages  ChatMessage[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+model ChatMessage {
+  id        Int         @id @default(autoincrement())
+  role      String      // ai | user
+  text      String
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId Int
+  createdAt DateTime    @default(now())
+}
+
+model DocumentChunk {
+  id         Int      @id @default(autoincrement())
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  documentId Int
+  chunkIndex Int
+  text       String
+  embedding  String   // JSON-encoded float array
+  createdAt  DateTime @default(now())
 }

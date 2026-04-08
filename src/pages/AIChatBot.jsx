@@ -1,6 +1,8 @@
-import { useState, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+/* eslint-disable react-hooks/set-state-in-effect */
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { api } from '../utils/api'
 import miniLogo from '../assets/miniLogo.png'
 import logo from '../assets/logo.png'
 import chatBg from '../assets/AIChatBotBackground.png'
@@ -46,79 +48,16 @@ const SUGGESTIONS = [
   },
 ]
 
-const CHAT_HISTORY = [
-  { id: 1, title: 'Open a savings account', time: 'Today' },
-  { id: 2, title: 'Transfer limits overseas', time: 'Today' },
-  { id: 3, title: 'Credit card rewards policy', time: 'Yesterday' },
-  { id: 4, title: 'Nearest branch location', time: 'Yesterday' },
-  { id: 5, title: 'Loan interest rates 2025', time: 'Mon' },
-  { id: 6, title: 'ATM withdrawal abroad', time: 'Mon' },
-]
-
-const INITIAL_MESSAGES = [
-  {
-    id: 1,
-    role: 'ai',
-    text: 'Hello! I\'m VietFinance AI. How can I assist you with your banking needs today?',
-    time: '09:41',
-  },
-  {
-    id: 2,
-    role: 'user',
-    text: 'What are the current savings account interest rates?',
-    time: '09:42',
-  },
-  {
-    id: 3,
-    role: 'ai',
-    text: 'Our current savings account rates are:\n\n• Standard Savings: 4.2% p.a.\n• Premium Savings: 5.8% p.a. (min. balance 50M VND)\n• Term Deposit (12 months): 7.1% p.a.\n\nWould you like to open a savings account or get more details on any of these options?',
-    time: '09:42',
-  },
-  {
-    id: 4,
-    role: 'user',
-    text: 'Tell me more about the Premium Savings account.',
-    time: '09:43',
-  },
-  {
-    id: 5,
-    role: 'ai',
-    text: 'The Premium Savings account offers:\n\n• 5.8% p.a. interest rate\n• Minimum balance of 50,000,000 VND\n• Free unlimited transfers\n• Dedicated relationship manager\n• Priority customer support\n\nInterest is calculated daily and credited monthly. You can open one online in under 5 minutes!',
-    time: '09:43',
-  },
-]
-
-const FOLDER_TREE = [
-  {
-    id: 1, name: 'General Knowledge', count: 10, open: true,
-    children: [
-      {
-        id: 2, name: 'Onboarding', count: 3, open: true,
-        children: [
-          { id: 3, name: 'Subfolder 1', count: 5 },
-          { id: 4, name: 'Subfolder 2', count: 2 },
-        ],
-      },
-      { id: 5, name: 'Policies', count: 4 },
-      { id: 6, name: 'Training', count: 3 },
-    ],
-  },
-  { id: 7, name: 'Human Resources', count: 8 },
-  { id: 8, name: 'Finance', count: 12 },
-]
-
-const FOLDER_CARDS = [
-  { id: 1, name: 'Onboarding', count: '3 Files' },
-  { id: 2, name: 'Policies', count: '4 Files' },
-  { id: 3, name: 'Training', count: '3 Files' },
-]
-
-const DOC_FILES = [
-  { id: 1, name: 'Onboarding',   addedBy: 'test@gmail.com', modified: 'Today at 18:36', size: '1 KB', kind: 'Folder', permission: 'Employee' },
-  { id: 2, name: 'Subfolder 1',  addedBy: 'test@gmail.com', modified: 'Today at 18:36', size: '1 KB', kind: 'Folder', permission: 'Admin'    },
-  { id: 3, name: 'Subfolder 1',  addedBy: 'test@gmail.com', modified: 'Today at 18:36', size: '1 KB', kind: 'Folder', permission: 'Customer' },
-  { id: 4, name: 'Subfolder 1',  addedBy: 'test@gmail.com', modified: 'Today at 18:36', size: '1 KB', kind: 'Folder', permission: 'Admin'    },
-]
+function findFolderInTree(tree, id) {
+  for (const node of tree) {
+    if (node.id === id) return node
+    if (node.children) {
+      const found = findFolderInTree(node.children, id)
+      if (found) return found
+    }
+  }
+  return null
+}
 
 function TreeItem({ node, depth = 0, selectedId, onSelect }) {
   const [open, setOpen] = useState(node.open ?? false)
@@ -176,50 +115,268 @@ function FolderCard({ folder, selected, onClick }) {
 export default function AIChatBot() {
   const [input, setInput] = useState('')
   const [activeNav, setActiveNav] = useState('home')
-  const [activeChatId, setActiveChatId] = useState(1)
-  const [messages, setMessages] = useState(INITIAL_MESSAGES)
-  const [selectedFolderId, setSelectedFolderId] = useState(1)
+
+  // Chat state
+  const [chatSessions, setChatSessions] = useState([])
+  const [activeSessionId, setActiveSessionId] = useState(null)
+  const [messages, setMessages] = useState([])
+  const [chatLoading, setChatLoading] = useState(false)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [historyMenu, setHistoryMenu] = useState({ open: false, x: 0, y: 0, sessionId: null })
+  const [renamingSessionId, setRenamingSessionId] = useState(null)
+  const [renameValue, setRenameValue] = useState('')
+
+  // Documents state
+  const [folderTree, setFolderTree] = useState([])
+  const [selectedFolderId, setSelectedFolderId] = useState(null)
+  const [folderContents, setFolderContents] = useState({ folder: null, subfolders: [], documents: [] })
   const [selectedCardId, setSelectedCardId] = useState(null)
+  const [docsLoading, setDocsLoading] = useState(false)
+  const [previewDoc, setPreviewDoc] = useState(null)
+  const [docsMode, setDocsMode] = useState('folders') // 'folders' | 'tags'
+  const [selectedPermTags, setSelectedPermTags] = useState([])
+  const [docSearchQuery, setDocSearchQuery] = useState('')
+  const [docSearchLoading, setDocSearchLoading] = useState(false)
+  const [docSearchError, setDocSearchError] = useState('')
+  const [docSearchResults, setDocSearchResults] = useState([])
+
   const messagesEndRef = useRef(null)
   const navigate = useNavigate()
+  const { sessionId: routeSessionId } = useParams()
   const { user, logout } = useAuth()
 
   const userInitial = user?.name ? user.name.charAt(0).toUpperCase() : '?'
+  const sidebarPinned = historyMenu.open || renamingSessionId !== null
 
-  function handleSettingsClick() {
-    logout()
-    navigate('/')
-  }
+  // ── Fetch chat sessions ──────────────────────────────────
+  const fetchChatSessions = useCallback(async () => {
+    try {
+      const data = await api.get('/chats')
+      setChatSessions(data.sessions)
+    } catch (err) {
+      console.error('Failed to load chat sessions:', err)
+    }
+  }, [])
 
+  useEffect(() => {
+    fetchChatSessions()
+  }, [fetchChatSessions])
+
+  // ── Sync active session from URL ─────────────────────────
+  useEffect(() => {
+    if (!routeSessionId) return
+    const parsed = Number.parseInt(routeSessionId, 10)
+    if (Number.isNaN(parsed)) {
+      navigate('/chat', { replace: true })
+      return
+    }
+    setActiveSessionId(parsed)
+    setActiveNav('chat')
+  }, [routeSessionId, navigate])
+
+  // ── Fetch messages for active session ────────────────────
+  useEffect(() => {
+    if (!activeSessionId) return
+    setChatLoading(true)
+    api.get(`/chats/${activeSessionId}/messages`)
+      .then(data => setMessages(data.messages))
+      .catch(err => console.error('Failed to load messages:', err))
+      .finally(() => setChatLoading(false))
+  }, [activeSessionId])
+
+  // ── Fetch folder tree ────────────────────────────────────
+  useEffect(() => {
+    if (activeNav !== 'documents' || folderTree.length > 0) return
+    api.get('/documents/folders')
+      .then(data => {
+        setFolderTree(data.folders)
+        if (data.folders.length > 0 && selectedFolderId === null) {
+          setSelectedFolderId(data.folders[0].id)
+        }
+      })
+      .catch(err => console.error('Failed to load folder tree:', err))
+  }, [activeNav]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Fetch folder contents ─────────────────────────────────
+  useEffect(() => {
+    if (!selectedFolderId) return
+    setDocsLoading(true)
+    setSelectedCardId(null)
+    setPreviewDoc(null)
+    api.get(`/documents/folders/${selectedFolderId}`)
+      .then(data => setFolderContents(data))
+      .catch(err => console.error('Failed to load folder contents:', err))
+      .finally(() => setDocsLoading(false))
+  }, [selectedFolderId])
+
+  // ── Semantic search (documents) ──────────────────────────
+  useEffect(() => {
+    if (activeNav !== 'documents') return
+
+    const q = docSearchQuery.trim()
+    if (!q) {
+      setDocSearchLoading(false)
+      setDocSearchError('')
+      setDocSearchResults([])
+      return
+    }
+
+    let cancelled = false
+    setDocSearchLoading(true)
+    setDocSearchError('')
+
+    const t = setTimeout(() => {
+      api.get(`/documents/search?q=${encodeURIComponent(q)}&topK=20`)
+        .then(data => {
+          if (cancelled) return
+          setDocSearchResults(Array.isArray(data?.results) ? data.results : [])
+        })
+        .catch(err => {
+          if (cancelled) return
+          setDocSearchError(err?.message || 'Search failed')
+          setDocSearchResults([])
+        })
+        .finally(() => {
+          if (cancelled) return
+          setDocSearchLoading(false)
+        })
+    }, 350)
+
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [docSearchQuery, activeNav])
+
+  // ── Scroll to bottom on new messages ────────────────────
   useEffect(() => {
     if (activeNav === 'chat') {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
   }, [messages, activeNav])
 
-  function handleSend() {
-    if (!input.trim()) return
-    const newMsg = {
-      id: messages.length + 1,
-      role: 'user',
-      text: input.trim(),
-      time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+  // ── Close history context menu ──────────────────────────
+  useEffect(() => {
+    if (!historyMenu.open) return
+    function onGlobalDown() {
+      setHistoryMenu(m => (m.open ? { ...m, open: false } : m))
     }
-    setMessages(prev => [...prev, newMsg])
+    function onKeyDown(e) {
+      if (e.key === 'Escape') {
+        setHistoryMenu(m => (m.open ? { ...m, open: false } : m))
+      }
+    }
+    window.addEventListener('mousedown', onGlobalDown)
+    window.addEventListener('scroll', onGlobalDown, true)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('mousedown', onGlobalDown)
+      window.removeEventListener('scroll', onGlobalDown, true)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [historyMenu.open])
+
+  function handleSettingsClick() {
+    logout()
+    navigate('/')
+  }
+
+  async function handleNewChat() {
+    try {
+      const data = await api.post('/chats', {})
+      setActiveSessionId(data.session.id)
+      setMessages(data.messages)
+      setChatSessions(prev => [data.session, ...prev])
+      setActiveNav('chat')
+      navigate(`/chat/${data.session.id}`)
+    } catch (err) {
+      console.error('Failed to create chat session:', err)
+    }
+  }
+
+  async function handleSelectChat(sessionId) {
+    setActiveSessionId(sessionId)
+    setActiveNav('chat')
+    navigate(`/chat/${sessionId}`)
+  }
+
+  async function handleDeleteChat(sessionId) {
+    try {
+      await api.delete(`/chats/${sessionId}`)
+      setHistoryMenu(m => (m.open ? { ...m, open: false } : m))
+      await fetchChatSessions()
+
+      if (activeSessionId === sessionId) {
+        setActiveSessionId(null)
+        setMessages([])
+        setActiveNav('home')
+        navigate('/chat')
+      }
+    } catch (err) {
+      console.error('Failed to delete chat session:', err)
+    }
+  }
+
+  async function handleCommitRename(sessionId, nextTitle) {
+    const title = (nextTitle ?? '').trim()
+    if (!title) {
+      setRenamingSessionId(null)
+      setRenameValue('')
+      return
+    }
+    try {
+      await api.patch(`/chats/${sessionId}`, { title })
+      setRenamingSessionId(null)
+      setRenameValue('')
+      fetchChatSessions()
+    } catch (err) {
+      console.error('Failed to rename chat session:', err)
+    }
+  }
+
+  async function handleSend() {
+    if (!input.trim()) return
+
+    // If no active session, create one first
+    let sessionId = activeSessionId
+    if (!sessionId) {
+      try {
+        const data = await api.post('/chats', {})
+        sessionId = data.session.id
+        setActiveSessionId(sessionId)
+        setMessages(data.messages)
+        setChatSessions(prev => [data.session, ...prev])
+        setActiveNav('chat')
+        navigate(`/chat/${sessionId}`)
+      } catch (err) {
+        console.error('Failed to create session:', err)
+        return
+      }
+    }
+
+    const text = input.trim()
     setInput('')
 
-    // Simulate AI response
-    setTimeout(() => {
-      setMessages(prev => [
-        ...prev,
-        {
-          id: prev.length + 1,
-          role: 'ai',
-          text: 'Thank you for your question. Our team is looking into this for you. Is there anything else I can help you with?',
-          time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
-        },
-      ])
-    }, 1000)
+    // Show user message immediately
+    const tempUserMsg = { id: `temp-${Date.now()}`, role: 'user', text, time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) }
+    setMessages(prev => [...prev, tempUserMsg])
+    setAiLoading(true)
+
+    try {
+      const data = await api.post(`/chats/${sessionId}/messages`, { text })
+      setMessages(prev => {
+        const without = prev.filter(m => m.id !== tempUserMsg.id)
+        const alreadyHasUser = without.some(m => String(m.id) === String(data.userMessage.id))
+        return alreadyHasUser
+          ? [...without, data.aiMessage]
+          : [...without, data.userMessage, data.aiMessage]
+      })
+      fetchChatSessions()
+    } catch (err) {
+      console.error('Failed to send message:', err)
+    } finally {
+      setAiLoading(false)
+    }
   }
 
   function handleKeyDown(e) {
@@ -229,14 +386,32 @@ export default function AIChatBot() {
     }
   }
 
+  const trimmedDocSearchQuery = docSearchQuery.trim()
+  const hasDocSearch = trimmedDocSearchQuery.length > 0
+  const currentFolderName = hasDocSearch
+    ? 'Search results'
+    : selectedFolderId
+      ? (findFolderInTree(folderTree, selectedFolderId)?.name ?? 'Documents')
+      : 'Documents'
+
+  const normalizedSelectedPermTags = selectedPermTags.map(t => t.toLowerCase())
+  const visibleDocuments = (docsMode === 'tags' && normalizedSelectedPermTags.length > 0)
+    ? folderContents.documents.filter(d => normalizedSelectedPermTags.includes(String(d.permission).toLowerCase()))
+    : folderContents.documents
+
   return (
     <div className="chatbot-root">
       {/* ── Left Sidebar ── */}
-      <aside className="chatbot-sidebar">
+      <aside className={`chatbot-sidebar${sidebarPinned ? ' chatbot-sidebar--pinned' : ''}`}>
         {/* Logo */}
         <button
           className="chatbot-sidebar-top"
-          onClick={() => setActiveNav('home')}
+          onClick={() => {
+            setActiveNav('home')
+            setActiveSessionId(null)
+            setMessages([])
+            navigate('/chat')
+          }}
           style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
         >
           <div className="chatbot-sidebar-logo-mini">
@@ -251,7 +426,12 @@ export default function AIChatBot() {
         <nav className="chatbot-sidebar-nav">
           <button
             className={`chatbot-nav-btn ${activeNav === 'home' ? 'chatbot-nav-btn--active' : ''}`}
-            onClick={() => setActiveNav('home')}
+            onClick={() => {
+              setActiveNav('home')
+              setActiveSessionId(null)
+              setMessages([])
+              navigate('/chat')
+            }}
             aria-label="Home"
           >
             <span className="chatbot-nav-icon">
@@ -292,25 +472,62 @@ export default function AIChatBot() {
           </button>
         </nav>
 
-        {/* Chat history list — only visible when expanded */}
+        {/* Chat history list */}
         <div className="chatbot-sidebar-history">
           <div className="chatbot-sidebar-history-label">RECENT CHATS</div>
-          {CHAT_HISTORY.map(chat => (
+          {chatSessions.map(chat => (
             <button
               key={chat.id}
-              className={`chatbot-history-item ${activeChatId === chat.id ? 'chatbot-history-item--active' : ''}`}
-              onClick={() => { setActiveChatId(chat.id); setActiveNav('chat') }}
+              className={`chatbot-history-item ${activeSessionId === chat.id ? 'chatbot-history-item--active' : ''}`}
+              onClick={() => handleSelectChat(chat.id)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setHistoryMenu({ open: true, x: e.clientX, y: e.clientY, sessionId: chat.id })
+              }}
             >
               <span className="chatbot-history-dot" />
-              <span className="chatbot-history-title">{chat.title}</span>
+              <span className="chatbot-history-title" style={{ minWidth: 0, flex: 1 }}>
+                {renamingSessionId === chat.id ? (
+                  <input
+                    value={renameValue}
+                    autoFocus
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        handleCommitRename(chat.id, renameValue)
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault()
+                        setRenamingSessionId(null)
+                        setRenameValue('')
+                      }
+                    }}
+                    onBlur={() => handleCommitRename(chat.id, renameValue)}
+                    style={{
+                      width: '100%',
+                      maxWidth: '100%',
+                      boxSizing: 'border-box',
+                      padding: '6px 8px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(255,255,255,0.22)',
+                      outline: 'none',
+                      background: 'rgba(255,255,255,0.10)',
+                      color: 'white',
+                      fontSize: 13,
+                      fontWeight: 600,
+                    }}
+                  />
+                ) : (
+                  chat.title
+                )}
+              </span>
               <span className="chatbot-history-time">{chat.time}</span>
             </button>
           ))}
 
-          <button
-            className="chatbot-new-chat-btn"
-            onClick={() => setActiveNav('chat')}
-          >
+          <button className="chatbot-new-chat-btn" onClick={handleNewChat}>
             <svg viewBox="0 0 24 24" fill="none" width="16" height="16">
               <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
             </svg>
@@ -338,6 +555,74 @@ export default function AIChatBot() {
       </aside>
 
       {/* ── Main Area ── */}
+      {historyMenu.open && (
+        <div
+          role="menu"
+          aria-label="Chat options"
+          style={{
+            position: 'fixed',
+            top: historyMenu.y,
+            left: historyMenu.x,
+            zIndex: 9999,
+            background: '#0B3C71',
+            border: '1px solid rgba(255,255,255,0.14)',
+            borderRadius: 10,
+            padding: 6,
+            minWidth: 160,
+            boxShadow: '0 18px 50px rgba(0,0,0,0.35)',
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              background: 'transparent',
+              border: 0,
+              color: 'white',
+              padding: '10px 10px',
+              borderRadius: 8,
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+            onClick={() => {
+              const id = historyMenu.sessionId
+              if (!id) return
+              const current = chatSessions.find(s => s.id === id)
+              setRenamingSessionId(id)
+              setRenameValue(current?.title ?? '')
+              setHistoryMenu(m => (m.open ? { ...m, open: false } : m))
+            }}
+          >
+            Rename
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              background: 'transparent',
+              border: 0,
+              color: 'white',
+              padding: '10px 10px',
+              borderRadius: 8,
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+            onClick={() => {
+              if (!historyMenu.sessionId) return
+              handleDeleteChat(historyMenu.sessionId)
+            }}
+          >
+            Delete
+          </button>
+        </div>
+      )}
       {activeNav === 'documents' ? (
         <main className="chatbot-main chatbot-main--documents">
           {/* Header */}
@@ -355,102 +640,282 @@ export default function AIChatBot() {
           <div className="doc-body">
             {/* Left panel — folder tree */}
             <div className="doc-left-panel">
-              {/* Search */}
               <div className="doc-search-wrap">
                 <svg viewBox="0 0 20 20" fill="none" width="15" height="15" className="doc-search-icon">
                   <circle cx="8.5" cy="8.5" r="5.5" stroke="#9CA3AF" strokeWidth="1.6"/>
                   <path d="M13 13l3.5 3.5" stroke="#9CA3AF" strokeWidth="1.6" strokeLinecap="round"/>
                 </svg>
-                <input className="doc-search-input" placeholder="Search folders..." />
+                <input
+                  className="doc-search-input"
+                  placeholder="Semantic search documents..."
+                  value={docSearchQuery}
+                  onChange={(e) => setDocSearchQuery(e.target.value)}
+                />
               </div>
 
-              {/* Tabs */}
               <div className="doc-tabs">
-                <button className="doc-tab doc-tab--active">Folders</button>
-                <button className="doc-tab">Tags</button>
+                <button
+                  className={`doc-tab ${docsMode === 'folders' ? 'doc-tab--active' : ''}`}
+                  onClick={() => setDocsMode('folders')}
+                  type="button"
+                >
+                  Folders
+                </button>
+                <button
+                  className={`doc-tab ${docsMode === 'tags' ? 'doc-tab--active' : ''}`}
+                  onClick={() => setDocsMode('tags')}
+                  type="button"
+                >
+                  Tags
+                </button>
               </div>
 
-              {/* Tree */}
               <div className="doc-tree">
-                {FOLDER_TREE.map(node => (
-                  <TreeItem key={node.id} node={node} selectedId={selectedFolderId} onSelect={setSelectedFolderId} />
-                ))}
+                {folderTree.length === 0 ? (
+                  <div style={{ padding: '12px', color: '#9CA3AF', fontSize: '13px' }}>Loading...</div>
+                ) : (
+                  folderTree.map(node => (
+                    <TreeItem key={node.id} node={node} selectedId={selectedFolderId} onSelect={setSelectedFolderId} />
+                  ))
+                )}
               </div>
             </div>
 
-            {/* Right panel — folder cards + files table */}
+            {/* Right panel */}
             <div className="doc-right-panel">
               {/* Breadcrumb */}
               <div className="doc-breadcrumb">
-                <button className="doc-bc-nav">
-                  <svg viewBox="0 0 16 16" fill="none" width="14" height="14"><path d="M10 12L6 8l4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </button>
-                <button className="doc-bc-nav">
-                  <svg viewBox="0 0 16 16" fill="none" width="14" height="14"><path d="M6 12l4-4-4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </button>
-                <div className="doc-bc-sep" />
-                <span className="doc-bc-current">General Knowledge</span>
-                <button className="doc-bc-dropdown">
-                  <svg viewBox="0 0 16 16" fill="none" width="12" height="12"><path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </button>
+                {previewDoc ? (
+                  <>
+                    <button className="doc-bc-nav" onClick={() => setPreviewDoc(null)} title="Back to files">
+                      <svg viewBox="0 0 16 16" fill="none" width="14" height="14"><path d="M10 12L6 8l4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </button>
+                    <div className="doc-bc-sep" />
+                    <span className="doc-bc-current" style={{ cursor: 'pointer', textDecoration: 'underline', opacity: 0.7 }} onClick={() => setPreviewDoc(null)}>{currentFolderName}</span>
+                    <span style={{ margin: '0 6px', opacity: 0.4 }}>/</span>
+                    <span className="doc-bc-current">{previewDoc.name}</span>
+                  </>
+                ) : (
+                  <>
+                    <button className="doc-bc-nav">
+                      <svg viewBox="0 0 16 16" fill="none" width="14" height="14"><path d="M10 12L6 8l4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </button>
+                    <button className="doc-bc-nav">
+                      <svg viewBox="0 0 16 16" fill="none" width="14" height="14"><path d="M6 12l4-4-4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </button>
+                    <div className="doc-bc-sep" />
+                    <span className="doc-bc-current">{currentFolderName}</span>
+                    <button className="doc-bc-dropdown">
+                      <svg viewBox="0 0 16 16" fill="none" width="12" height="12"><path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </button>
+                  </>
+                )}
               </div>
 
-              {/* Folders section */}
-              <div className="doc-section">
-                <h3 className="doc-section-title">Folders</h3>
-                <div className="doc-folder-grid">
-                  {FOLDER_CARDS.map(f => (
-                    <FolderCard
-                      key={f.id}
-                      folder={f}
-                      selected={selectedCardId === f.id}
-                      onClick={() => setSelectedCardId(f.id)}
+              {previewDoc ? (
+                <div className="doc-preview-panel">
+                  <div className="doc-preview-meta">
+                    <span className={`doc-permission doc-permission--${previewDoc.permission.toLowerCase()}`}>{previewDoc.permission}</span>
+                    <span className="doc-preview-detail">{previewDoc.kind}</span>
+                    <span className="doc-preview-detail">{previewDoc.size}</span>
+                    <span className="doc-preview-detail">{previewDoc.modified}</span>
+                    {previewDoc.fileUrl && (
+                      <a href={previewDoc.fileUrl} download={previewDoc.name} className="doc-preview-download">
+                        <svg viewBox="0 0 20 20" fill="none" width="14" height="14">
+                          <path d="M10 3v10M6 9l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                          <path d="M3 15h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                        </svg>
+                        Download
+                      </a>
+                    )}
+                  </div>
+                  {previewDoc.fileUrl ? (
+                    <iframe
+                      src={previewDoc.fileUrl}
+                      title={previewDoc.name}
+                      className="doc-preview-iframe"
                     />
-                  ))}
+                  ) : (
+                    <div style={{ padding: '32px', color: '#9CA3AF', textAlign: 'center' }}>No file available for preview.</div>
+                  )}
                 </div>
-              </div>
+              ) : hasDocSearch ? (
+                <div className="doc-section">
+                  <h3 className="doc-section-title">Search results</h3>
+                  <div style={{ marginTop: -6, marginBottom: 12, color: '#9CA3AF', fontSize: 13 }}>
+                    Showing top matches for “{trimmedDocSearchQuery}”.
+                  </div>
 
-              {/* Files table */}
-              <div className="doc-section">
-                <h3 className="doc-section-title">Files</h3>
-                <div className="doc-table-wrap">
-                  <table className="doc-table">
-                    <thead>
-                      <tr>
-                        <th><input type="checkbox" /></th>
-                        <th>Name</th>
-                        <th>Added By</th>
-                        <th>Date Modified</th>
-                        <th>Size</th>
-                        <th>Kind</th>
-                        <th>Permission</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {DOC_FILES.map(f => (
-                        <tr key={f.id}>
-                          <td><input type="checkbox" /></td>
-                          <td>
-                            <div className="doc-file-name">
-                              <svg viewBox="0 0 20 20" width="15" height="15" fill="none" style={{ flexShrink: 0 }}>
-                                <path d="M2 5a2 2 0 012-2h3l2 2h7a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V5z" fill="#DBB35F" opacity="0.85"/>
-                              </svg>
-                              {f.name}
-                            </div>
-                          </td>
-                          <td>{f.addedBy}</td>
-                          <td>{f.modified}</td>
-                          <td>{f.size}</td>
-                          <td>{f.kind}</td>
-                          <td>
-                            <span className={`doc-permission doc-permission--${f.permission.toLowerCase()}`}>{f.permission}</span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  {docSearchLoading ? (
+                    <div style={{ padding: '16px', color: '#9CA3AF', fontSize: '13px' }}>Searching...</div>
+                  ) : docSearchError ? (
+                    <div style={{ padding: '16px', color: '#FCA5A5', fontSize: '13px' }}>{docSearchError}</div>
+                  ) : docSearchResults.length === 0 ? (
+                    <div style={{ padding: '16px', color: '#9CA3AF', fontSize: '13px' }}>
+                      No results found. If you recently added documents, index them first by running
+                      <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}>
+                        {' '}node backend/scripts/indexDocuments.js
+                      </span>
+                      .
+                    </div>
+                  ) : (
+                    <div className="doc-table-wrap">
+                      <table className="doc-table doc-table--search">
+                        <thead>
+                          <tr>
+                            <th><input type="checkbox" /></th>
+                            <th>Name</th>
+                            <th>Score</th>
+                            <th>Added By</th>
+                            <th>Date Modified</th>
+                            <th>Size</th>
+                            <th>Kind</th>
+                            <th>Permission</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {docSearchResults.map(r => {
+                            const d = r.document
+                            const highlight = r.highlights?.[0]?.text
+                            const preview = typeof highlight === 'string'
+                              ? (highlight.length > 160 ? `${highlight.slice(0, 160)}…` : highlight)
+                              : null
+                            return (
+                              <tr key={d.id} onClick={() => setPreviewDoc(d)} style={{ cursor: 'pointer' }}>
+                                <td onClick={e => e.stopPropagation()}><input type="checkbox" /></td>
+                                <td>
+                                  <div className="doc-file-name">
+                                    <svg viewBox="0 0 20 20" width="15" height="15" fill="none" style={{ flexShrink: 0 }}>
+                                      <path d="M4 2h8l4 4v12a2 2 0 01-2 2H4a2 2 0 01-2-2V4a2 2 0 012-2z" fill="#6B7280" opacity="0.7"/>
+                                      <path d="M12 2v4h4" stroke="white" strokeWidth="1.2"/>
+                                    </svg>
+                                    <div style={{ minWidth: 0 }}>
+                                      <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</div>
+                                      {preview && (
+                                        <div style={{ marginTop: 3, color: '#9CA3AF', fontSize: 12, lineHeight: 1.35 }}>
+                                          {preview}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+                                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{Number(r.score ?? 0).toFixed(2)}</td>
+                                <td>{d.addedBy}</td>
+                                <td>{d.modified}</td>
+                                <td>{d.size}</td>
+                                <td>{d.kind}</td>
+                                <td>
+                                  <span className={`doc-permission doc-permission--${d.permission.toLowerCase()}`}>{d.permission}</span>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
-              </div>
+              ) : docsLoading ? (
+                <div style={{ padding: '32px', color: '#9CA3AF', textAlign: 'center' }}>Loading...</div>
+              ) : (
+                <>
+                  {/* Folders section */}
+                  {folderContents.subfolders.length > 0 && (
+                    <div className="doc-section">
+                      <h3 className="doc-section-title">Folders</h3>
+                      <div className="doc-folder-grid">
+                        {folderContents.subfolders.map(f => (
+                          <FolderCard
+                            key={f.id}
+                            folder={f}
+                            selected={selectedCardId === f.id}
+                            onClick={() => { setSelectedCardId(f.id); setSelectedFolderId(f.id) }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Files table */}
+                  <div className="doc-section">
+                    <h3 className="doc-section-title">Files</h3>
+                    {docsMode === 'tags' && (
+                      <div className="doc-tags-filter">
+                        <div className="doc-tags-filter-label">Filter by permission</div>
+                        <div className="doc-tags-chips">
+                          {['Admin', 'Manager', 'Employee', 'Customer'].map(tag => {
+                            const active = selectedPermTags.includes(tag)
+                            return (
+                              <button
+                                key={tag}
+                                type="button"
+                                className={`doc-tag-chip ${active ? 'doc-tag-chip--active' : ''}`}
+                                onClick={() => {
+                                  setSelectedPermTags(prev => (
+                                    prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
+                                  ))
+                                }}
+                              >
+                                {tag}
+                              </button>
+                            )
+                          })}
+                          <button
+                            type="button"
+                            className="doc-tag-clear"
+                            onClick={() => setSelectedPermTags([])}
+                            disabled={selectedPermTags.length === 0}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {visibleDocuments.length === 0 ? (
+                      <div style={{ padding: '16px', color: '#9CA3AF', fontSize: '13px' }}>No files in this folder.</div>
+                    ) : (
+                      <div className="doc-table-wrap">
+                        <table className="doc-table">
+                          <thead>
+                            <tr>
+                              <th><input type="checkbox" /></th>
+                              <th>Name</th>
+                              <th>Added By</th>
+                              <th>Date Modified</th>
+                              <th>Size</th>
+                              <th>Kind</th>
+                              <th>Permission</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {visibleDocuments.map(f => (
+                              <tr key={f.id} onClick={() => setPreviewDoc(f)} style={{ cursor: 'pointer' }}>
+                                <td onClick={e => e.stopPropagation()}><input type="checkbox" /></td>
+                                <td>
+                                  <div className="doc-file-name">
+                                    <svg viewBox="0 0 20 20" width="15" height="15" fill="none" style={{ flexShrink: 0 }}>
+                                      <path d="M4 2h8l4 4v12a2 2 0 01-2 2H4a2 2 0 01-2-2V4a2 2 0 012-2z" fill="#6B7280" opacity="0.7"/>
+                                      <path d="M12 2v4h4" stroke="white" strokeWidth="1.2"/>
+                                    </svg>
+                                    {f.name}
+                                  </div>
+                                </td>
+                                <td>{f.addedBy}</td>
+                                <td>{f.modified}</td>
+                                <td>{f.size}</td>
+                                <td>{f.kind}</td>
+                                <td>
+                                  <span className={`doc-permission doc-permission--${f.permission.toLowerCase()}`}>{f.permission}</span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </main>
@@ -478,7 +943,7 @@ export default function AIChatBot() {
                 </svg>
                 <span> Searching documents</span>
               </button>
-              <button className="chatbot-toolbar-btn chatbot-toolbar-btn--dark" onClick={() => setMessages([])}>
+              <button className="chatbot-toolbar-btn chatbot-toolbar-btn--dark" onClick={handleNewChat}>
                 <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="15" height="15">
                   <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2v10z" stroke="white" strokeWidth="1.8" strokeLinejoin="round"/>
                 </svg>
@@ -489,23 +954,43 @@ export default function AIChatBot() {
 
           {/* Messages area */}
           <div className="chatbot-messages">
-            {messages.map(msg => (
-              <div key={msg.id} className={`chatbot-message chatbot-message--${msg.role}`}>
-                {msg.role === 'ai' && (
-                  <div className="chatbot-message-avatar">
-                    <img src={miniLogo} alt="AI" />
+            {chatLoading ? (
+              <div style={{ textAlign: 'center', padding: '32px', color: '#9CA3AF' }}>Loading messages...</div>
+            ) : messages.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '32px', color: '#9CA3AF' }}>
+                Select a chat or start a new one.
+              </div>
+            ) : (
+              messages.map(msg => (
+                <div key={msg.id} className={`chatbot-message chatbot-message--${msg.role}`}>
+                  {msg.role === 'ai' && (
+                    <div className="chatbot-message-avatar">
+                      <img src={miniLogo} alt="AI" />
+                    </div>
+                  )}
+                  <div className="chatbot-message-content">
+                    <div className="chatbot-message-bubble">
+                      {msg.text.split('\n').map((line, i, arr) => (
+                        <span key={i}>{line}{i < arr.length - 1 && <br />}</span>
+                      ))}
+                    </div>
+                    <div className="chatbot-message-time">{msg.time}</div>
                   </div>
-                )}
+                </div>
+              ))
+            )}
+            {aiLoading && (
+              <div className="chatbot-message chatbot-message--ai">
+                <div className="chatbot-message-avatar">
+                  <img src={miniLogo} alt="AI" />
+                </div>
                 <div className="chatbot-message-content">
-                  <div className="chatbot-message-bubble">
-                    {msg.text.split('\n').map((line, i) => (
-                      <span key={i}>{line}{i < msg.text.split('\n').length - 1 && <br />}</span>
-                    ))}
+                  <div className="chatbot-message-bubble chatbot-typing-indicator">
+                    <span /><span /><span />
                   </div>
-                  <div className="chatbot-message-time">{msg.time}</div>
                 </div>
               </div>
-            ))}
+            )}
             <div ref={messagesEndRef} />
           </div>
 
@@ -536,7 +1021,7 @@ export default function AIChatBot() {
                     </svg>
                   </button>
                 </div>
-                <button className="chatbot-send-btn" aria-label="Send" onClick={handleSend}>
+                <button className="chatbot-send-btn" aria-label="Send" onClick={handleSend} disabled={aiLoading}>
                   <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="18" height="18">
                     <path d="M12 19V5M5 12l7-7 7 7" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
@@ -559,7 +1044,7 @@ export default function AIChatBot() {
               </svg>
               <span> Searching documents</span>
             </button>
-            <button className="chatbot-toolbar-btn chatbot-toolbar-btn--dark" onClick={() => setActiveNav('chat')}>
+            <button className="chatbot-toolbar-btn chatbot-toolbar-btn--dark" onClick={handleNewChat}>
               <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
                 <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2v10z" stroke="white" strokeWidth="1.8" strokeLinejoin="round"/>
               </svg>
@@ -584,6 +1069,7 @@ export default function AIChatBot() {
                 placeholder="What is the policy for withdraw money?..."
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
                 rows={1}
               />
               <div className="chatbot-input-footer">
@@ -602,7 +1088,7 @@ export default function AIChatBot() {
                     </svg>
                   </button>
                 </div>
-                <button className="chatbot-send-btn" aria-label="Send" onClick={() => setActiveNav('chat')}>
+                <button className="chatbot-send-btn" aria-label="Send" onClick={handleSend}>
                   <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="18" height="18">
                     <path d="M12 19V5M5 12l7-7 7 7" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>

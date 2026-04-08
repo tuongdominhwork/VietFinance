@@ -83,3 +83,15 @@ npm run preview
 
 - This repository currently focuses on frontend UI and routing.
 - Authentication and chatbot backend integration can be added in future iterations.
+
+## Semantic document search (optional)
+
+The “Browse Documents” page supports **semantic search** if documents have been indexed into `DocumentChunk` embeddings.
+
+- Run the indexer:
+
+```bash
+node backend/scripts/indexDocuments.js
+```
+
+- The indexer requires an embeddings server (Ollama) running, because embeddings are produced via `OLLAMA_URL` / `EMBED_MODEL` in `backend/services/embedder.js`.

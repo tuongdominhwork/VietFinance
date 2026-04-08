@@ -1,12 +1,15 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 
 // Initialize DB (creates tables if not exist)
 require('./config/db');
 
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
+const documentRoutes = require('./routes/documents');
+const chatRoutes = require('./routes/chats');
 
 const app = express();
 
@@ -15,6 +18,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Health check
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
@@ -22,6 +26,8 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/documents', documentRoutes);
+app.use('/api/chats', chatRoutes);
 
 // 404 handler
 app.use((req, res) => res.status(404).json({ message: 'Route not found' }));
